@@ -84,6 +84,16 @@ public class SqlAgentController {
         nodeOutputFlux.subscribe(
                 output -> {
                     try {
+                        // 跳过 END 节点输出 — END 节点包含完整累积状态(summary等)，
+                        // 这些内容已由 summarize 节点的 node_output 发送过，
+                        // 前端也会通过 stream 事件实时展示，再发送会导致重复显示。
+                        if (StateGraph.END.equals(output.node()) || "__END__".equals(output.node())) {
+                            logger.debug("跳过 END 节点输出: node={}, sessionId={}", output.node(), sessionId);
+                            return;
+                        }
+                        logger.info("[SSE NodeOutput] node={}, sessionId={}, hasSummary={}",
+                                output.node(), sessionId,
+                                output.state().data().containsKey("summary"));
                         Map<String, Object> eventData = processNodeOutput(output, sessionId);
                         sink.tryEmitNext(ServerSentEvent.<Map<String, Object>>builder()
                                 .data(eventData)

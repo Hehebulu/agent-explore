@@ -52,12 +52,17 @@ public class HumanApprovalNode implements AsyncNodeActionWithConfig, Interruptab
         String userQuestion = state.value("user_question").orElse("").toString();
         String generatedSql = state.value("generated_sql").orElse("").toString();
         String approvalCycleId = state.value("approval_cycle_id").orElse("").toString();
+        String checkResult = state.value("sql_check_result").orElse("").toString();
+        String checkSuggestion = state.value("sql_check_suggestion").orElse("").toString();
+        String riskLevel = state.value("risk_level").orElse("MEDIUM").toString();
+        Object sqlValid = state.value("sql_valid").orElse(null);
 
         @SuppressWarnings("unchecked")
         List<String> tablesUsed = (List<String>) state.value("tables_used").orElse(new ArrayList<>());
 
         // 构建中断元数据 — 用于通知前端
-        logger.info("SQL 需要人工审批: tables={}, cycleId={}", tablesUsed, approvalCycleId);
+        logger.info("SQL 需要人工审批: tables={}, cycleId={}, risk={}, valid={}",
+                tablesUsed, approvalCycleId, riskLevel, sqlValid);
 
         InterruptionMetadata interruptionMetadata = InterruptionMetadata.builder(nodeId, state)
                 .addMetadata("type", "SQL_APPROVAL")
@@ -71,6 +76,10 @@ public class HumanApprovalNode implements AsyncNodeActionWithConfig, Interruptab
                 .addMetadata("node", nodeId)
                 .addMetadata("message", "SQL 已生成，等待人工审批后才能执行")
                 .addMetadata("available_actions", List.of("APPROVE", "REJECT", "MODIFY"))
+                .addMetadata("check_result", checkResult)
+                .addMetadata("check_suggestion", checkSuggestion)
+                .addMetadata("risk_level", riskLevel)
+                .addMetadata("sql_valid", sqlValid != null ? sqlValid.toString() : "")
                 .build();
 
         return Optional.of(interruptionMetadata);

@@ -10,6 +10,7 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.example.text2sql.dispatcher.ApprovalDispatcher;
 import com.example.text2sql.node.*;
 import com.example.text2sql.streaming.StreamingEventBus;
+import com.example.text2sql.tool.CheckQueryTool;
 import com.example.text2sql.tool.ListTablesTool;
 import com.example.text2sql.tool.GetSchemaTool;
 import com.example.text2sql.tool.ExecuteQueryTool;
@@ -27,7 +28,7 @@ import java.util.Map;
  *
  * 核心工作流:
  * START → UserQuestion → ListTables → GetSchema → GenerateSql
- * → HumanApproval → ExecuteSql → Summarize → END
+ * → CheckSql → HumanApproval → ExecuteSql → Summarize → END
  *
  * 各 Node 通过 Tool 类执行实际逻辑：
  * - ListTablesNode  → ListTablesTool  → JdbcTemplate
@@ -45,6 +46,7 @@ public class GraphConfig {
             ListTablesTool listTablesTool,
             GetSchemaTool getSchemaTool,
             ExecuteQueryTool executeQueryTool,
+            CheckQueryTool checkQueryTool,
             StreamingEventBus streamingEventBus) throws GraphStateException {
 
         // ===== KeyStrategy 配置 - 参考 Spring AI Alibaba Graph 官方示例 =====
@@ -61,6 +63,11 @@ public class GraphConfig {
             keyStrategyHashMap.put("table_schemas", new ReplaceStrategy());
             // SQL 生成
             keyStrategyHashMap.put("generated_sql", new ReplaceStrategy());
+            // SQL 校验
+            keyStrategyHashMap.put("sql_valid", new ReplaceStrategy());
+            keyStrategyHashMap.put("sql_check_result", new ReplaceStrategy());
+            keyStrategyHashMap.put("sql_check_suggestion", new ReplaceStrategy());
+            keyStrategyHashMap.put("risk_level", new ReplaceStrategy());
             // 人工审批
             keyStrategyHashMap.put("human_action", new ReplaceStrategy());
             keyStrategyHashMap.put("modified_sql", new ReplaceStrategy());
@@ -88,6 +95,7 @@ public class GraphConfig {
         var listTablesNode = new ListTablesNode(listTablesTool);
         var getSchemaNode = new GetSchemaNode(getSchemaTool);
         var generateSqlNode = new GenerateSqlNode(chatClientBuilder, streamingEventBus);
+        var checkSqlNode = new CheckSqlNode(checkQueryTool);
         var humanApprovalNode = new HumanApprovalNode();
         var executeSqlNode = new ExecuteSqlNode(executeQueryTool);
         var summarizeNode = new SummarizeNode(chatClientBuilder, streamingEventBus);
@@ -99,6 +107,7 @@ public class GraphConfig {
                 .addNode("list_tables", listTablesNode)
                 .addNode("get_schema", getSchemaNode)
                 .addNode("generate_sql", generateSqlNode)
+                .addNode("check_sql", checkSqlNode)
                 .addNode("human_approval", humanApprovalNode)
                 .addNode("execute_sql", executeSqlNode)
                 .addNode("summarize", summarizeNode)
@@ -108,7 +117,8 @@ public class GraphConfig {
                 .addEdge("user_question", "list_tables")
                 .addEdge("list_tables", "get_schema")
                 .addEdge("get_schema", "generate_sql")
-                .addEdge("generate_sql", "human_approval")
+                .addEdge("generate_sql", "check_sql")
+                .addEdge("check_sql", "human_approval")
                 .addConditionalEdges("human_approval",
                         AsyncEdgeAction.edge_async(new ApprovalDispatcher()),
                         Map.of("execute_sql", "execute_sql",

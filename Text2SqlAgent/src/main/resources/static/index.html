@@ -405,7 +405,8 @@
             <div class="info-row"><span class="info-label">用户问题:</span><span>${escapeHtml(metadata.user_question || '')}</span></div>
             <div class="info-row"><span class="info-label">涉及表:</span><span>${escapeHtml(String(metadata.tables_used || ''))}</span></div>
             <div class="info-row"><span class="info-label">风险等级:</span><span class="risk-badge risk-${metadata.risk_level || 'MEDIUM'}">${metadata.risk_level || 'MEDIUM'}</span></div>
-            <div class="info-row"><span class="info-label">校验结果:</span><span>${escapeHtml(metadata.check_result || '')}</span></div>
+            <div class="info-row"><span class="info-label">校验结果:</span><span>${escapeHtml(metadata.check_result || '无')}</span></div>
+            ${metadata.check_suggestion ? `<div class="info-row"><span class="info-label">建议:</span><span>${escapeHtml(metadata.check_suggestion)}</span></div>` : ''}
             <div class="approval-actions">
                 <button class="btn btn-approve" onclick="doApprove()">✓ 批准执行</button>
                 <button class="btn btn-reject" onclick="doReject()">✗ 拒绝执行</button>
@@ -476,9 +477,22 @@
 
     function handleGraphEvent(data) {
         const type = data.type;
+        const node = data.node;
+
+        // 跳过 END 节点输出 — 后端 Graph 框架在到达 END 时
+        // 会 emit 一个包含完整累积状态的 NodeOutput，
+        // 其中 summary 已在 summarize 节点流式展示过，重复发送会导致前端显示两份相同内容。
+        if (type === 'node_output' && (node === '__END__' || node === 'END')) {
+            console.log('[SSE] 跳过 END 节点输出:', node, 'hasSummary:', !!(data.state && data.state.summary));
+            return;
+        }
+
+        console.log('[SSE] 收到事件:', type, 'node:', node,
+            type === 'node_output' ? 'hasSummary:' + !!(data.state && data.state.summary) : '');
 
         // === 流式事件处理 ===
         if (type === 'stream_start') {
+            console.log('[SSE] stream_start → 创建流式消息, node:', data.node);
             // 如果之前的流还没结束，先结束它
             if (activeStreamEl) finishCurrentStream();
             // 创建新的流式消息
@@ -508,6 +522,7 @@
                 scrollToBottom();
             }
         } else if (type === 'stream_end') {
+            console.log('[SSE] stream_end, node:', node, 'activeStreamNode:', activeStreamNode);
             if (activeStreamEl) {
                 if (activeStreamNode === 'generate_sql' && activeStreamEl.sqlBlock) {
                     activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = 'SQL';
@@ -518,41 +533,52 @@
         // === 节点输出 ===
         else if (type === 'node_output') {
             const state = data.state || {};
-            const node = data.node;
             const summary = state.summary;
             const sql = state.generated_sql || state.executed_sql;
             const status = state.workflow_status;
 
+            console.log('[SSE] node_output:', node,
+                'activeStreamNode:', activeStreamNode,
+                'hasSummary:', !!summary,
+                'status:', status);
+
             updateGraphStatus(node);
 
-            // 如果该节点有过流式输出，更新流式消息而不是新增
-            if (activeStreamEl && activeStreamNode === node && sql) {
-                // 更新流式消息中的 SQL 为最终版本
-                if (activeStreamEl.sqlBlock) {
-                    activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = 'SQL';
-                    activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">SQL</span>' + escapeHtml(sql);
-                }
+            // 有活跃的流式消息，且是当前节点 → 结束流，不新增消息
+            if (activeStreamEl && activeStreamNode === node) {
                 if (node === 'generate_sql') {
+                    if (activeStreamEl.sqlBlock) {
+                        activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = 'SQL';
+                        activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">SQL</span>' + escapeHtml(sql);
+                    }
                     activeStreamEl.bubble.textContent = 'SQL 已生成，正在进行安全检查...';
+                } else if (node === 'summarize' && summary) {
+                    activeStreamEl.bubble.textContent = summary;
+                    document.getElementById('sendBtn').disabled = false;
+                    isWaiting = false;
+                } else if (summary) {
+                    activeStreamEl.bubble.textContent = summary;
+                    document.getElementById('sendBtn').disabled = false;
+                    isWaiting = false;
                 }
-                addTimeStamp(activeStreamEl.wrapper);
+                // 注意：不在这里 addTimeStamp，因为 stream_start → addMessage 已经加过了
                 finishCurrentStream();
-            } else if (activeStreamEl && activeStreamNode === node && summary) {
-                activeStreamEl.bubble.textContent = summary;
-                addTimeStamp(activeStreamEl.wrapper);
-                finishCurrentStream();
-                document.getElementById('sendBtn').disabled = false;
-                isWaiting = false;
-            } else if (summary && status === 'COMPLETED') {
-                // 没有流式输出时的回退
-                finishCurrentStream();
+            }
+            // 无活跃流式消息时的回退处理
+            else if (summary && status === 'COMPLETED') {
+                console.warn('[SSE] ⚠ 回退处理: summary 存在且 COMPLETED, node:', node,
+                    '— 如果 summary 已通过流式展示过，这就是重复输出!');
                 addMessage('agent', summary, sql);
                 document.getElementById('sendBtn').disabled = false;
                 isWaiting = false;
-            } else if (sql && node === 'generate_sql' && !activeStreamEl) {
+            } else if (sql && node === 'generate_sql') {
+                console.log('[SSE] node_output 回退: generate_sql');
                 addMessage('agent', 'SQL 已生成，正在进行安全检查...', sql);
             } else if (node === 'execute_sql') {
+                console.log('[SSE] node_output 回退: execute_sql');
                 addMessage('agent', 'SQL 执行完成，正在生成总结...');
+            } else {
+                console.log('[SSE] node_output 未匹配任何处理分支, node:', node);
             }
         }
         // === 中断事件 (人工审批) ===
@@ -568,6 +594,7 @@
     }
 
     function finishCurrentStream() {
+        console.log('[SSE] finishCurrentStream — 清除 activeStreamEl, was:', activeStreamNode);
         activeStreamEl = null;
         activeStreamNode = null;
         streamContent = '';

@@ -33,6 +33,8 @@ START → user_question → list_tables → get_schema → generate_sql
   → check_sql → human_approval → execute_sql → summarize → END
 ```
 
+The `check_sql` node is now correctly wired into the graph (was previously documented but not actually registered).
+
 Each node is a class in `node/` implementing `AsyncNodeActionWithConfig`. The graph is defined in `config/GraphConfig.java`.
 
 **Conditional routing:**

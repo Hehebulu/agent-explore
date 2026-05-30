@@ -74,6 +74,7 @@ public class SummarizeNode implements AsyncNodeActionWithConfig {
                 .replace("{query_results}", previewData.toString());
 
         // 通知前端开始流式输出
+        logger.info("[SummarizeNode] 开始流式生成总结, sessionId={}, rowCount={}", sessionId, rowCount);
         streamingEventBus.emitStart(sessionId, "summarize", "正在生成总结...");
 
         Flux<String> streamFlux = this.chatClient.prompt()
@@ -85,7 +86,8 @@ public class SummarizeNode implements AsyncNodeActionWithConfig {
                 .doOnNext(token -> streamingEventBus.emit(sessionId, "summarize", token))
                 .collect(Collectors.joining())
                 .map(summary -> {
-                    logger.info("总结流式生成完成");
+                    logger.info("[SummarizeNode] 流式生成完成, summaryLength={}, sessionId={}",
+                            summary.length(), sessionId);
                     streamingEventBus.emitEnd(sessionId, "summarize");
 
                     Map<String, Object> result = new HashMap<>();

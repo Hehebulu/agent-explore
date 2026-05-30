@@ -164,6 +164,12 @@ public class HumanApprovalController {
 
         nodeOutputFlux.subscribe(
                 output -> {
+                    // 跳过 END 节点输出 — 与主控制器相同的去重逻辑
+                    if (StateGraph.END.equals(output.node()) || "__END__".equals(output.node())) {
+                        logger.debug("跳过 END 节点输出: node={}, sessionId={}", output.node(), sessionId);
+                        return;
+                    }
+
                     Map<String, Object> eventData = new LinkedHashMap<>();
                     eventData.put("node", output.node());
 
@@ -181,6 +187,9 @@ public class HumanApprovalController {
                     } else {
                         eventData.put("type", "node_output");
                         eventData.put("state", output.state().data());
+                        logger.info("[SSE NodeOutput-Resume] node={}, sessionId={}, hasSummary={}",
+                                output.node(), sessionId,
+                                output.state().data().containsKey("summary"));
                     }
 
                     sink.tryEmitNext(ServerSentEvent.<Map<String, Object>>builder()

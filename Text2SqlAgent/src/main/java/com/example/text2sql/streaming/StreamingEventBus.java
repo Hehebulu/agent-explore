@@ -42,7 +42,13 @@ public class StreamingEventBus {
             event.put("node", node);
             event.put("type", "stream");
             event.put("content", content);
-            sink.tryEmitNext(event);
+            Sinks.EmitResult result = sink.tryEmitNext(event);
+            if (result.isFailure()) {
+                logger.warn("[StreamingEventBus] emit 失败: sessionId={}, node={}, result={}",
+                        sessionId, node, result);
+            }
+        } else {
+            logger.debug("[StreamingEventBus] emit 跳过(sink 不存在): sessionId={}, node={}", sessionId, node);
         }
     }
 
@@ -56,7 +62,12 @@ public class StreamingEventBus {
             event.put("node", node);
             event.put("type", "stream_start");
             event.put("message", message);
-            sink.tryEmitNext(event);
+            Sinks.EmitResult result = sink.tryEmitNext(event);
+            logger.info("[StreamingEventBus] emitStart: sessionId={}, node={}, result={}",
+                    sessionId, node, result);
+        } else {
+            logger.warn("[StreamingEventBus] emitStart 跳过(sink 不存在): sessionId={}, node={}",
+                    sessionId, node);
         }
     }
 
@@ -83,7 +94,12 @@ public class StreamingEventBus {
             Map<String, Object> event = new LinkedHashMap<>();
             event.put("node", node);
             event.put("type", "stream_end");
-            sink.tryEmitNext(event);
+            Sinks.EmitResult result = sink.tryEmitNext(event);
+            logger.info("[StreamingEventBus] emitEnd: sessionId={}, node={}, result={}",
+                    sessionId, node, result);
+        } else {
+            logger.warn("[StreamingEventBus] emitEnd 跳过(sink 不存在): sessionId={}, node={}",
+                    sessionId, node);
         }
     }
 
