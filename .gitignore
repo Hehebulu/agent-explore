@@ -1,0 +1,6 @@
+# Ignore all sub-project directories
+*
+
+# But keep index files
+!.gitignore
+!README.md
