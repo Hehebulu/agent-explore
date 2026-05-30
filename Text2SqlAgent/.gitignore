@@ -20,6 +20,7 @@ Thumbs.db
 
 # Spring Boot
 *.jar
+!target/*.jar
 
 # Environment
 .env
@@ -29,3 +30,6 @@ application-local.yml
 
 # Claude
 .claude/
+
+# Dev notes
+dev-notes/

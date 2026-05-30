@@ -1,0 +1,101 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: text2sql-agent
+
+  # DashScope AI 配置
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:your-api-key-here}
+      chat:
+        options:
+          model: qwen-max
+          temperature: 0.1
+
+  # 数据库配置
+  datasource:
+    url: jdbc:h2:mem:text2sql;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+    hikari:
+      read-only: true
+      maximum-pool-size: 5
+      minimum-idle: 2
+      connection-timeout: 10000
+      idle-timeout: 300000
+
+  # H2 控制台 (开发环境)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # Thymeleaf
+  thymeleaf:
+    enabled: true
+    prefix: classpath:/static/
+    suffix: .html
+
+  # SQL 初始化
+  sql:
+    init:
+      mode: always
+
+# Text2SQL Agent 自定义配置
+text2sql:
+  db:
+    url: jdbc:h2:mem:text2sql;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    schema: PUBLIC
+    connection-type: jdbc
+    dialect-type: h2
+
+  security:
+    sql-validation-enabled: true
+    max-result-rows: 1000
+    query-timeout-seconds: 30
+    max-sql-length: 4096
+    force-limit: true
+    default-limit: 100
+    max-join-tables: 5
+    read-only-connection: true
+    sql-blacklist:
+      - INSERT
+      - UPDATE
+      - DELETE
+      - DROP
+      - TRUNCATE
+      - ALTER
+      - CREATE
+      - REPLACE
+      - MERGE
+      - GRANT
+      - REVOKE
+      - EXEC
+      - EXECUTE
+      - CALL
+      - LOAD
+    forbidden-patterns:
+      - ".*;\\s*DROP\\s+.*"
+      - ".*;\\s*DELETE\\s+.*"
+      - ".*;\\s*INSERT\\s+.*"
+      - ".*;\\s*UPDATE\\s+.*"
+      - ".*UNION\\s+SELECT.*"
+      - ".*INTO\\s+OUTFILE.*"
+      - ".*INTO\\s+DUMPFILE.*"
+      - ".*LOAD_FILE\\(.*"
+      - ".*SLEEP\\(.*"
+      - ".*BENCHMARK\\(.*"
+      - ".*WAITFOR\\s+DELAY.*"
+
+logging:
+  config: classpath:logback-spring.xml

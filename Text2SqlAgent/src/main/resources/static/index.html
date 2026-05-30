@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text2SQL Agent — Human-in-the-Loop</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --sidebar-bg: #161822;
+            --card-bg: #1a1d2e;
+            --border: #2a2d3e;
+            --text: #e1e4ea;
+            --text-secondary: #8b8fa7;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --danger: #ef4444;
+            --danger-hover: #f87171;
+            --warning: #f59e0b;
+            --success: #10b981;
+            --code-bg: #111318;
+            --input-bg: #1e2030;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ===== Sidebar ===== */
+        .sidebar {
+            width: 300px;
+            min-width: 300px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            overflow-y: auto;
+        }
+        .sidebar h2 {
+            font-size: 16px;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+        .session-item {
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 4px;
+            font-size: 13px;
+            border: 1px solid transparent;
+            transition: all .15s;
+        }
+        .session-item:hover { background: var(--card-bg); }
+        .session-item.active { border-color: var(--accent); background: var(--card-bg); }
+        .session-item .status {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+        .status.INIT { background: #6366f133; color: var(--accent); }
+        .status.WAITING_APPROVAL { background: #f59e0b33; color: var(--warning); }
+        .status.COMPLETED { background: #10b98133; color: var(--success); }
+        .status.FAILED { background: #ef444433; color: var(--danger); }
+
+        /* ===== Main ===== */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ===== Chat Area ===== */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: fadeIn .3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .message.user { flex-direction: row-reverse; }
+        .message .avatar {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: bold;
+            flex-shrink: 0;
+        }
+        .message.agent .avatar { background: var(--accent); }
+        .message.user .avatar { background: #4b5563; }
+        .message .bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+        .message.agent .bubble { background: var(--card-bg); border: 1px solid var(--border); }
+        .message.user .bubble { background: var(--accent); }
+        .message .time { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+        /* ===== SQL Block ===== */
+        .sql-block {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #a5d6ff;
+            margin: 8px 0;
+            position: relative;
+        }
+        .sql-block .sql-label {
+            position: absolute; top: 8px; right: 12px;
+            font-size: 11px; color: var(--text-secondary);
+            background: var(--card-bg); padding: 2px 8px; border-radius: 4px;
+        }
+
+        /* ===== Approval Panel ===== */
+        .approval-panel {
+            background: var(--card-bg);
+            border: 2px solid var(--warning);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 8px 0;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { border-color: var(--warning); }
+            50% { border-color: #d97706; }
+        }
+        .approval-panel h3 {
+            color: var(--warning);
+            margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .approval-panel .info-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .approval-panel .info-label { color: var(--text-secondary); min-width: 70px; }
+        .approval-panel .risk-badge {
+            padding: 2px 8px; border-radius: 4px; font-size: 12px;
+        }
+        .risk-LOW { background: #10b98133; color: var(--success); }
+        .risk-MEDIUM { background: #f59e0b33; color: var(--warning); }
+        .risk-HIGH { background: #ef444433; color: var(--danger); }
+        .risk-CRITICAL { background: #7c000033; color: #ff4444; }
+        .approval-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none; border-radius: 8px;
+            font-size: 14px; font-weight: 500;
+            cursor: pointer; transition: all .15s;
+        }
+        .btn-approve { background: var(--success); color: #fff; }
+        .btn-approve:hover { background: #059669; }
+        .btn-reject { background: var(--danger); color: #fff; }
+        .btn-reject:hover { background: #dc2626; }
+        .btn-modify { background: var(--warning); color: #000; }
+        .btn-modify:hover { background: #d97706; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .modify-area { margin-top: 12px; display: none; }
+        .modify-area.visible { display: block; }
+        .modify-area textarea {
+            width: 100%; min-height: 100px;
+            background: var(--code-bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 12px; font-family: monospace; font-size: 13px;
+            resize: vertical;
+        }
+
+        /* ===== Input ===== */
+        .input-area {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            background: var(--sidebar-bg);
+        }
+        .input-area input {
+            flex: 1;
+            padding: 12px 16px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color .15s;
+        }
+        .input-area input:focus { border-color: var(--accent); }
+        .input-area button {
+            padding: 12px 24px;
+            background: var(--accent);
+            color: #fff;
+            border: none; border-radius: 10px;
+            font-size: 14px; font-weight: 500;
+            cursor: pointer; transition: background .15s;
+        }
+        .input-area button:hover { background: var(--accent-hover); }
+        .input-area button:disabled { opacity: 0.5; }
+
+        /* ===== Graph Status ===== */
+        .graph-status {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 8px 24px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .graph-node {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+        }
+        .graph-node.current {
+            background: var(--accent);
+            border-color: var(--accent-hover);
+        }
+        .graph-arrow { color: var(--text-secondary); }
+
+        /* Streaming indicator */
+        .stream-indicator {
+            display: inline-block;
+            width: 8px; height: 16px;
+            background: var(--accent);
+            animation: blink 0.8s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+    <h2>Text2SQL Agent</h2>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px;">Human-in-the-Loop SQL Assistant</p>
+    <div id="sessionList">
+        <div class="session-item active" data-sid="default">
+            <div style="font-weight:500;">新会话</div>
+            <div class="status INIT">就绪</div>
+        </div>
+    </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+    <!-- Graph Status Bar -->
+    <div class="graph-status" id="graphStatus">
+        <span style="color:var(--text-secondary);">工作流:</span>
+        <span class="graph-node">START</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">分析问题</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">获取表</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">获取结构</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">生成SQL</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">校验SQL</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node" style="border-color:var(--warning);">人工审批</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">执行SQL</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">总结</span>
+        <span class="graph-arrow">→</span>
+        <span class="graph-node">END</span>
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="chat-area" id="chatArea">
+        <div class="message agent">
+            <div class="avatar">AI</div>
+            <div>
+                <div class="bubble">
+                    欢迎使用 Text2SQL Agent!<br>
+                    请用自然语言描述您的查询需求。<br><br>
+                    例如："查询销量最高的商品"、"统计最近30天订单数"、"查询消费最高的前10个用户"
+                </div>
+                <div class="time">刚刚</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="输入您的查询问题..." onkeydown="if(event.key==='Enter')sendQuery()">
+        <button id="sendBtn" onclick="sendQuery()">发送</button>
+    </div>
+</div>
+
+<script>
+    let currentSessionId = 'default';
+    let isWaiting = false;
+    // 当前活跃的流式消息 DOM 元素
+    let activeStreamEl = null;
+    let activeStreamNode = null;
+    let streamContent = '';
+
+    function createMessageWrapper(role) {
+        const chatArea = document.getElementById('chatArea');
+        const div = document.createElement('div');
+        div.className = 'message ' + role;
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.textContent = role === 'user' ? 'U' : 'AI';
+        const wrapper = document.createElement('div');
+        div.appendChild(avatar);
+        div.appendChild(wrapper);
+        chatArea.appendChild(div);
+        return { msgDiv: div, wrapper };
+    }
+
+    function addTimeStamp(wrapper) {
+        const time = document.createElement('div');
+        time.className = 'time';
+        time.textContent = new Date().toLocaleTimeString();
+        wrapper.appendChild(time);
+    }
+
+    function scrollToBottom() {
+        const chatArea = document.getElementById('chatArea');
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function addMessage(role, content, sql, metadata) {
+        const { msgDiv, wrapper } = createMessageWrapper(role);
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        bubble.textContent = content;
+        wrapper.appendChild(bubble);
+
+        // SQL 展示
+        if (sql) {
+            const sqlDiv = document.createElement('div');
+            sqlDiv.className = 'sql-block';
+            sqlDiv.innerHTML = '<span class="sql-label">SQL</span>' + escapeHtml(sql);
+            wrapper.appendChild(sqlDiv);
+        }
+
+        // Approval Panel
+        if (metadata && metadata.type === 'SQL_APPROVAL') {
+            const panel = buildApprovalPanel(metadata);
+            wrapper.appendChild(panel);
+            isWaiting = true;
+            document.getElementById('sendBtn').disabled = true;
+        }
+
+        addTimeStamp(wrapper);
+        scrollToBottom();
+        return { msgDiv, wrapper, bubble };
+    }
+
+    function buildApprovalPanel(metadata) {
+        const panel = document.createElement('div');
+        panel.className = 'approval-panel';
+        panel.id = 'approvalPanel';
+        panel.innerHTML = `
+            <h3>⚠ SQL 执行审批</h3>
+            <div class="info-row"><span class="info-label">用户问题:</span><span>${escapeHtml(metadata.user_question || '')}</span></div>
+            <div class="info-row"><span class="info-label">涉及表:</span><span>${escapeHtml(String(metadata.tables_used || ''))}</span></div>
+            <div class="info-row"><span class="info-label">风险等级:</span><span class="risk-badge risk-${metadata.risk_level || 'MEDIUM'}">${metadata.risk_level || 'MEDIUM'}</span></div>
+            <div class="info-row"><span class="info-label">校验结果:</span><span>${escapeHtml(metadata.check_result || '')}</span></div>
+            <div class="approval-actions">
+                <button class="btn btn-approve" onclick="doApprove()">✓ 批准执行</button>
+                <button class="btn btn-reject" onclick="doReject()">✗ 拒绝执行</button>
+                <button class="btn btn-modify" onclick="toggleModify()">✎ 修改SQL</button>
+            </div>
+            <div class="modify-area" id="modifyArea">
+                <textarea id="modifiedSql" placeholder="输入修改后的 SQL...">${escapeHtml(metadata.generated_sql || '')}</textarea>
+                <div style="margin-top:8px;display:flex;gap:8px;">
+                    <input type="text" id="modifyComment" placeholder="修改说明(可选)" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);">
+                    <button class="btn btn-modify" onclick="doModify()">提交修改后的 SQL</button>
+                </div>
+            </div>
+        `;
+        return panel;
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function sendQuery() {
+        const input = document.getElementById('userInput');
+        const question = input.value.trim();
+        if (!question || isWaiting) return;
+
+        addMessage('user', question);
+        input.value = '';
+        document.getElementById('sendBtn').disabled = true;
+
+        fetch('/api/text2sql/query', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userQuestion: question, sessionId: currentSessionId })
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function processEvents() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        document.getElementById('sendBtn').disabled = isWaiting;
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            try {
+                                const data = JSON.parse(line.substring(5).trim());
+                                handleGraphEvent(data);
+                            } catch(e) { console.warn('Parse error:', e); }
+                        }
+                    }
+                    processEvents();
+                });
+            }
+            processEvents();
+        }).catch(err => {
+            addMessage('agent', '请求失败: ' + err.message);
+            document.getElementById('sendBtn').disabled = false;
+        });
+    }
+
+    function handleGraphEvent(data) {
+        const type = data.type;
+
+        // === 流式事件处理 ===
+        if (type === 'stream_start') {
+            // 如果之前的流还没结束，先结束它
+            if (activeStreamEl) finishCurrentStream();
+            // 创建新的流式消息
+            const { msgDiv, wrapper, bubble } = addMessage('agent', '');
+            bubble.id = 'streamBubble-' + data.node;
+            bubble.innerHTML = '<span class="stream-indicator"></span>';
+            activeStreamEl = { msgDiv, wrapper, bubble, sqlBlock: null };
+            activeStreamNode = data.node;
+            streamContent = '';
+            updateGraphStatus(data.node);
+        } else if (type === 'stream') {
+            if (activeStreamEl) {
+                streamContent += data.content;
+                // 对于 generate_sql 节点，在 code 块中显示
+                if (activeStreamNode === 'generate_sql') {
+                    if (!activeStreamEl.sqlBlock) {
+                        activeStreamEl.sqlBlock = document.createElement('div');
+                        activeStreamEl.sqlBlock.className = 'sql-block';
+                        activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">生成中...</span>';
+                        activeStreamEl.bubble.innerHTML = '正在生成 SQL...';
+                        activeStreamEl.wrapper.insertBefore(activeStreamEl.sqlBlock, activeStreamEl.wrapper.querySelector('.time'));
+                    }
+                    activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">生成中...</span>' + escapeHtml(streamContent);
+                } else {
+                    activeStreamEl.bubble.textContent = streamContent;
+                }
+                scrollToBottom();
+            }
+        } else if (type === 'stream_end') {
+            if (activeStreamEl) {
+                if (activeStreamNode === 'generate_sql' && activeStreamEl.sqlBlock) {
+                    activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = 'SQL';
+                }
+                // 不结束流，等待 node_output 来更新最终内容
+            }
+        }
+        // === 节点输出 ===
+        else if (type === 'node_output') {
+            const state = data.state || {};
+            const node = data.node;
+            const summary = state.summary;
+            const sql = state.generated_sql || state.executed_sql;
+            const status = state.workflow_status;
+
+            updateGraphStatus(node);
+
+            // 如果该节点有过流式输出，更新流式消息而不是新增
+            if (activeStreamEl && activeStreamNode === node && sql) {
+                // 更新流式消息中的 SQL 为最终版本
+                if (activeStreamEl.sqlBlock) {
+                    activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = 'SQL';
+                    activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">SQL</span>' + escapeHtml(sql);
+                }
+                if (node === 'generate_sql') {
+                    activeStreamEl.bubble.textContent = 'SQL 已生成，正在进行安全检查...';
+                }
+                addTimeStamp(activeStreamEl.wrapper);
+                finishCurrentStream();
+            } else if (activeStreamEl && activeStreamNode === node && summary) {
+                activeStreamEl.bubble.textContent = summary;
+                addTimeStamp(activeStreamEl.wrapper);
+                finishCurrentStream();
+                document.getElementById('sendBtn').disabled = false;
+                isWaiting = false;
+            } else if (summary && status === 'COMPLETED') {
+                // 没有流式输出时的回退
+                finishCurrentStream();
+                addMessage('agent', summary, sql);
+                document.getElementById('sendBtn').disabled = false;
+                isWaiting = false;
+            } else if (sql && node === 'generate_sql' && !activeStreamEl) {
+                addMessage('agent', 'SQL 已生成，正在进行安全检查...', sql);
+            } else if (node === 'execute_sql') {
+                addMessage('agent', 'SQL 执行完成，正在生成总结...');
+            }
+        }
+        // === 中断事件 (人工审批) ===
+        else if (type === 'interruption' || type === 'HITL_PENDING') {
+            finishCurrentStream();
+            const meta = data.metadata || {};
+            // 兼容两种事件格式: interruption.metadata.generated_sql 或 HITL_PENDING.sql
+            const sql = meta.generated_sql || data.sql || '';
+            const msg = data.message || 'SQL 已生成并校验完毕，等待您的审批:';
+            addMessage('agent', msg, sql, meta);
+            updateGraphStatus('human_approval');
+        }
+    }
+
+    function finishCurrentStream() {
+        activeStreamEl = null;
+        activeStreamNode = null;
+        streamContent = '';
+    }
+
+    function updateGraphStatus(currentNode) {
+        const nodes = document.querySelectorAll('.graph-node');
+        const nodeNames = ['START', 'user_question', 'list_tables', 'get_schema', 'generate_sql', 'check_sql', 'human_approval', 'execute_sql', 'summarize', 'END'];
+        nodes.forEach((el, i) => {
+            el.classList.remove('current');
+            if (nodeNames[i] === currentNode) {
+                el.classList.add('current');
+            }
+        });
+    }
+
+    function doApprove() {
+        if (!isWaiting) return;
+        disableButtons();
+        resumeWorkflow('APPROVE', null, '');
+    }
+
+    function doReject() {
+        if (!isWaiting) return;
+        disableButtons();
+        resumeWorkflow('REJECT', null, '');
+    }
+
+    function toggleModify() {
+        document.getElementById('modifyArea').classList.toggle('visible');
+    }
+
+    function doModify() {
+        if (!isWaiting) return;
+        const modifiedSql = document.getElementById('modifiedSql').value.trim();
+        const comment = document.getElementById('modifyComment').value.trim();
+        if (!modifiedSql) { alert('请输入修改后的 SQL'); return; }
+        disableButtons();
+        resumeWorkflow('MODIFY', modifiedSql, comment);
+    }
+
+    function disableButtons() {
+        document.querySelectorAll('.approval-actions .btn').forEach(b => b.disabled = true);
+    }
+
+    function resumeWorkflow(action, modifiedSql, comment) {
+        const url = action === 'MODIFY' ? '/api/text2sql/approval/modify'
+                  : action === 'APPROVE' ? '/api/text2sql/approval/approve'
+                  : '/api/text2sql/approval/reject';
+
+        const body = action === 'MODIFY'
+            ? { sessionId: currentSessionId, modifiedSql, comment }
+            : { sessionId: currentSessionId, comment };
+
+        // 淡化旧的审批面板
+        const oldPanel = document.getElementById('approvalPanel');
+        if (oldPanel) {
+            oldPanel.style.opacity = '0.5';
+            oldPanel.removeAttribute('id');
+        }
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            function processResume() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // 如果流结束时正在等待新一轮审批（REJECT 后重新生成 SQL 触发了新 interrupt），
+                        // 不要覆盖 isWaiting 状态
+                        if (!isWaiting) {
+                            document.getElementById('sendBtn').disabled = false;
+                        }
+                        return;
+                    }
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            try {
+                                const data = JSON.parse(line.substring(5).trim());
+                                handleGraphEvent(data);
+                            } catch(e) {}
+                        }
+                    }
+                    processResume();
+                });
+            }
+            processResume();
+        }).catch(err => {
+            addMessage('agent', '审批请求失败: ' + err.message);
+            isWaiting = false;
+            document.getElementById('sendBtn').disabled = false;
+        });
+    }
+</script>
+
+</body>
+</html>
