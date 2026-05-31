@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人工客服控制台</title>
+<style>
+:root {
+    --primary: #059669; --primary-light: #34d399; --bg: #f0fdf4;
+    --card: #ffffff; --text: #1e293b; --text-muted: #64748b;
+    --border: #e2e8f0; --danger: #ef4444; --warning: #f59e0b;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1); --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh; display: flex;
+}
+/* 左侧排队面板 */
+.queue-panel {
+    width: 340px; min-width: 340px; background: var(--card);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+}
+.queue-panel h2 {
+    font-size: 16px; padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+}
+.queue-panel h2 .count { font-size: 12px; color: var(--text-muted); font-weight: normal; }
+.queue-list { flex: 1; overflow-y: auto; }
+.queue-item {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s;
+}
+.queue-item:hover { background: #f8fafc; }
+.queue-item.active { background: #ecfdf5; border-left: 3px solid var(--primary); }
+.queue-item .top { display: flex; justify-content: space-between; align-items: center; }
+.queue-item .uid { font-size: 13px; font-weight: 600; }
+.queue-item .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 12px;
+}
+.badge.waiting { background: #fef3c7; color: #92400e; }
+.badge.serving { background: #d1fae5; color: #065f46; }
+.badge.escalated { background: #fee2e2; color: #991b1b; }
+.queue-item .reason { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.queue-item .time { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.queue-item .claim-btn {
+    margin-top: 8px; font-size: 12px; padding: 4px 14px;
+    border-radius: 14px; border: 1px solid var(--primary);
+    background: white; color: var(--primary); cursor: pointer;
+}
+.queue-item .claim-btn:hover { background: var(--primary); color: white; }
+.no-queue { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 14px; }
+/* 右侧聊天面板 */
+.chat-panel {
+    flex: 1; display: flex; flex-direction: column;
+}
+.chat-header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    background: var(--card); display: flex; justify-content: space-between; align-items: center;
+}
+.chat-header .title { font-size: 15px; font-weight: 600; }
+.chat-header .actions { display: flex; gap: 8px; }
+.chat-header .actions button {
+    font-size: 12px; padding: 6px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: white; cursor: pointer;
+}
+.chat-header .actions button.resolve { border-color: var(--danger); color: var(--danger); }
+.chat-header .actions button.resolve:hover { background: var(--danger); color: white; }
+.chat-messages {
+    flex: 1; overflow-y: auto; padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+}
+.message { display: flex; gap: 8px; max-width: 75%; }
+.message.user { align-self: flex-end; flex-direction: row-reverse; }
+.message.agent { align-self: flex-start; }
+.message.system { align-self: center; max-width: 90%; }
+.avatar {
+    width: 30px; height: 30px; border-radius: 50%; font-size: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; flex-shrink: 0;
+}
+.avatar.user { background: #4f46e5; color: white; }
+.avatar.agent { background: var(--primary); color: white; }
+.avatar.system { background: var(--warning); color: white; }
+.bubble {
+    padding: 8px 14px; border-radius: var(--radius); font-size: 13px;
+    line-height: 1.5; word-break: break-word;
+}
+.bubble.user { background: #4f46e5; color: white; border-bottom-right-radius: 4px; }
+.bubble.agent { background: #f1f5f9; color: var(--text); border-bottom-left-radius: 4px; }
+.bubble.system { background: #fef3c7; color: #92400e; font-size: 12px; text-align: center; }
+.chat-input-area {
+    padding: 14px 20px; border-top: 1px solid var(--border);
+    background: var(--card); display: flex; gap: 10px;
+}
+.chat-input-area input {
+    flex: 1; border: 1px solid var(--border); border-radius: 20px;
+    padding: 8px 16px; font-size: 13px; outline: none;
+}
+.chat-input-area input:focus { border-color: var(--primary); }
+.chat-input-area button {
+    padding: 8px 18px; border-radius: 20px; border: none;
+    background: var(--primary); color: white; cursor: pointer; font-size: 13px;
+}
+.chat-input-area button:hover { background: var(--primary-light); }
+.chat-input-area button:disabled { background: #cbd5e1; cursor: not-allowed; }
+.placeholder {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<!-- 左侧排队面板 -->
+<div class="queue-panel">
+    <h2>排队列表 <span class="count" id="queueCount"></span></h2>
+    <div class="queue-list" id="queueList"></div>
+</div>
+
+<!-- 右侧聊天面板 -->
+<div class="chat-panel" id="chatPanel">
+    <div class="placeholder" id="placeholder">请从左侧选择一个用户开始服务</div>
+    <div class="chat-header" id="chatHeader" style="display:none">
+        <span class="title" id="chatTitle"></span>
+        <span class="actions">
+            <button class="resolve" onclick="resolveSession()">标记已解决</button>
+        </span>
+    </div>
+    <div class="chat-messages" id="chatMessages" style="display:none"></div>
+    <div class="chat-input-area" id="chatInputArea" style="display:none">
+        <input type="text" id="agentInput" placeholder="输入回复..." onkeydown="if(event.key==='Enter') sendAgentMessage()" />
+        <button id="sendAgentBtn" onclick="sendAgentMessage()">发送</button>
+    </div>
+</div>
+
+<script>
+const agentId = 'agent_' + Math.random().toString(36).substring(2, 6);
+let activeSessionId = null;
+let activeQueueId = null;
+let lastMsgId = 0;
+let queueTimer = null;
+let msgTimer = null;
+
+// ===== 排队轮询 =====
+async function refreshQueue() {
+    try {
+        const res = await fetch('/api/agent/queue');
+        const items = await res.json();
+        renderQueue(items);
+    } catch (e) { console.error('队列查询失败', e); }
+}
+
+function renderQueue(items) {
+    const el = document.getElementById('queueList');
+    document.getElementById('queueCount').textContent = '(' + items.length + '人)';
+    if (items.length === 0) {
+        el.innerHTML = '<div class="no-queue">暂无排队用户</div>';
+        return;
+    }
+    el.innerHTML = items.map(item => {
+        const isActive = item.id === activeQueueId;
+        const badgeCls = item.priority >= 10 ? 'escalated' : item.status;
+        const badgeText = item.priority >= 10 ? '紧急' : (item.status === 'serving' ? '服务中' : '等待中');
+        const btnHtml = item.status === 'waiting'
+            ? `<button class="claim-btn" onclick="event.stopPropagation();claimQueue(${item.id})">接入</button>`
+            : '';
+        const time = item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : '';
+        return `<div class="queue-item${isActive ? ' active' : ''}" onclick="selectQueue(${item.id}, '${item.sessionId}', '${item.status}')">
+            <div class="top">
+                <span class="uid">${escapeHtml(item.userId)}</span>
+                <span class="badge ${badgeCls}">${badgeText}</span>
+            </div>
+            <div class="reason">原因: ${escapeHtml(item.transferReason || '')}</div>
+            <div class="time">${time} | 会话: ${escapeHtml(item.sessionId)}</div>
+            ${btnHtml}
+        </div>`;
+    }).join('');
+}
+
+// ===== 接入/选择 =====
+async function claimQueue(queueId) {
+    try {
+        const res = await fetch('/api/agent/queue/' + queueId + '/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agentId })
+        });
+        const data = await res.json();
+        if (data.success) {
+            activeQueueId = queueId;
+            openSession(data.sessionId);
+            refreshQueue();
+        } else {
+            alert(data.message);
+        }
+    } catch (e) { console.error('认领失败', e); }
+}
+
+function selectQueue(queueId, sessionId, status) {
+    activeQueueId = queueId;
+    openSession(sessionId);
+    refreshQueue();
+}
+
+// ===== 会话聊天 =====
+function openSession(sessionId) {
+    activeSessionId = sessionId;
+    lastMsgId = 0;
+
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('chatHeader').style.display = 'flex';
+    document.getElementById('chatMessages').style.display = 'flex';
+    document.getElementById('chatInputArea').style.display = 'flex';
+    document.getElementById('chatTitle').textContent = '会话: ' + sessionId;
+
+    document.getElementById('chatMessages').innerHTML = '';
+    loadMessages();
+    if (msgTimer) clearInterval(msgTimer);
+    msgTimer = setInterval(loadMessages, 2000);
+}
+
+async function loadMessages() {
+    if (!activeSessionId) return;
+    try {
+        const res = await fetch('/api/agent/session/' + activeSessionId + '/messages?sinceId=' + lastMsgId);
+        const msgs = await res.json();
+        const container = document.getElementById('chatMessages');
+        for (const msg of msgs) {
+            if (msg.id > lastMsgId) lastMsgId = msg.id;
+            const role = msg.role;
+            const avatarLabel = role === 'user' ? 'U' : role === 'agent' ? '客' : '!';
+            const avatarCls = role === 'user' ? 'user' : role === 'agent' ? 'agent' : 'system';
+            const bubbleCls = role === 'user' ? 'user' : role === 'agent' ? 'agent' : 'system';
+            const div = document.createElement('div');
+            div.className = 'message ' + (role === 'user' ? 'user' : role === 'agent' ? 'agent' : 'system');
+            div.innerHTML = `<div class="avatar ${avatarCls}">${avatarLabel}</div>
+                <div class="bubble ${bubbleCls}">${escapeHtml(msg.content)}</div>`;
+            container.appendChild(div);
+        }
+        if (msgs.length > 0) {
+            container.scrollTop = container.scrollHeight;
+        }
+    } catch (e) { console.error('消息加载失败', e); }
+}
+
+async function sendAgentMessage() {
+    const input = document.getElementById('agentInput');
+    const content = input.value.trim();
+    if (!content || !activeSessionId) return;
+    input.value = '';
+
+    try {
+        await fetch('/api/agent/chat/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId: activeSessionId, agentId, content })
+        });
+        loadMessages();
+    } catch (e) { console.error('发送失败', e); }
+}
+
+async function resolveSession() {
+    if (!activeSessionId || !confirm('确认标记该会话为已解决？')) return;
+    try {
+        await fetch('/api/agent/session/' + activeSessionId + '/resolve', { method: 'POST' });
+        loadMessages();
+        closeSession();
+        refreshQueue();
+    } catch (e) { console.error('操作失败', e); }
+}
+
+function closeSession() {
+    activeSessionId = null;
+    activeQueueId = null;
+    document.getElementById('placeholder').style.display = 'flex';
+    document.getElementById('chatHeader').style.display = 'none';
+    document.getElementById('chatMessages').style.display = 'none';
+    document.getElementById('chatInputArea').style.display = 'none';
+    if (msgTimer) { clearInterval(msgTimer); msgTimer = null; }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 启动
+queueTimer = setInterval(refreshQueue, 3000);
+refreshQueue();
+</script>
+</body>
+</html>

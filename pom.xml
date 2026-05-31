@@ -30,6 +30,7 @@
 
     <modules>
         <module>Text2SqlAgent</module>
+        <module>customer-agent</module>
     </modules>
 
     <dependencyManagement>

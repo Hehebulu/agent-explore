@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: customer-agent
+  profiles:
+    active: dev
+
+  # MyBatis-Plus
+  datasource:
+    url: jdbc:postgresql://localhost:5432/customer_agent
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  type-enums-package: com.example.customeragent.model
+
+  # Redis
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+
+  # SQL 初始化
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      continue-on-error: true
+
+  # Spring AI OpenAI 兼容接口
+  ai:
+    openai:
+      api-key: ${AI_API_KEY:sk-xxx}
+      base-url: ${AI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${AI_CHAT_MODEL:gpt-4o}
+          temperature: 0.7
+      embedding:
+        options:
+          model: ${AI_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      pgvector:
+        index-type: hnsw
+        distance-type: cosine_distance
+        dimensions: 1536
+        initialize-schema: true
+
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+
+logging:
+  level:
+    com.example.customeragent: DEBUG
+    org.springframework.ai: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
