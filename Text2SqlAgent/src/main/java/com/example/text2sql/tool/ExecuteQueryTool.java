@@ -85,11 +85,13 @@ public class ExecuteQueryTool {
 
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - startTime;
-            logger.error("Tool[execute_query] 执行失败 ({} ms): {}", elapsed, e.getMessage());
+            logger.error("Tool[execute_query] 执行失败 ({} ms): {}", elapsed, e.getMessage(), e);
 
             return Map.of(
                     "success", false,
                     "error", "SQL 执行失败: " + e.getMessage(),
+                    "exception_type", e.getClass().getSimpleName(),
+                    "exception_message", e.getMessage(),
                     "execution_time_ms", elapsed,
                     "results", List.of(),
                     "row_count", 0

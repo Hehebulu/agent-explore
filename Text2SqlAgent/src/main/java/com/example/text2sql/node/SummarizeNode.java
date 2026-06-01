@@ -42,11 +42,40 @@ public class SummarizeNode implements AsyncNodeActionWithConfig {
         String userQuestion = state.value("user_question", "");
         String executedSql = state.value("executed_sql", "");
         String sessionId = state.value("session_id", "");
+        String workflowStatus = state.value("workflow_status", "");
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> queryResults = state.value("query_results", new ArrayList<>());
 
         Integer rowCount = state.value("result_row_count", 0);
+
+        // 检查上游节点是否执行失败 — 失败时不生成 LLM 摘要，直接返回错误信息
+        if ("FAILED".equals(workflowStatus)) {
+            String errorMessage = state.value("error_message", "未知错误");
+            String errorType = state.value("error_type", "");
+
+            logger.warn("[SummarizeNode] 检测到上游执行失败, errorType={}, errorMessage={}",
+                    errorType, errorMessage);
+
+            StringBuilder summary = new StringBuilder();
+            summary.append("SQL 执行失败。\n");
+            if (!errorType.isEmpty()) {
+                summary.append("\n异常类型: ").append(errorType);
+            }
+            summary.append("\n错误信息: ").append(errorMessage);
+            if (!executedSql.isEmpty()) {
+                summary.append("\n\n执行SQL:\n").append(executedSql);
+            }
+
+            return CompletableFuture.completedFuture(Map.of(
+                    "summary", summary.toString(),
+                    "workflow_status", "FAILED",
+                    "error_message", errorMessage,
+                    "error_type", errorType,
+                    "executed_sql", executedSql,
+                    "current_node", "summarize"
+            ));
+        }
 
         // 截断结果数据用于总结（避免 token 过多）
         List<Map<String, Object>> previewData = queryResults.size() > 20

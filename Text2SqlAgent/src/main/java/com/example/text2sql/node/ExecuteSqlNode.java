@@ -69,6 +69,7 @@ public class ExecuteSqlNode implements AsyncNodeActionWithConfig {
             return CompletableFuture.completedFuture(result);
         } else {
             String error = (String) execResult.getOrDefault("error", "未知错误");
+            String exceptionType = (String) execResult.getOrDefault("exception_type", "");
 
             @SuppressWarnings("unchecked")
             List<String> violations = (List<String>) execResult.getOrDefault("violations", List.of());
@@ -81,6 +82,8 @@ public class ExecuteSqlNode implements AsyncNodeActionWithConfig {
             return CompletableFuture.completedFuture(Map.of(
                     "workflow_status", "FAILED",
                     "error_message", error,
+                    "error_type", exceptionType,
+                    "executed_sql", executedSql,
                     "query_results", List.of(),
                     "result_row_count", 0
             ));

@@ -534,7 +534,7 @@
         else if (type === 'node_output') {
             const state = data.state || {};
             const summary = state.summary;
-            const sql = state.generated_sql || state.executed_sql;
+            const sql = state.executed_sql || state.generated_sql;
             const status = state.workflow_status;
 
             console.log('[SSE] node_output:', node,
@@ -554,6 +554,16 @@
                     activeStreamEl.bubble.textContent = 'SQL 已生成，正在进行安全检查...';
                 } else if (node === 'summarize' && summary) {
                     activeStreamEl.bubble.textContent = summary;
+                    // 更新 SQL 块为最终执行的 SQL
+                    if (sql && activeStreamEl.sqlBlock) {
+                        activeStreamEl.sqlBlock.querySelector('.sql-label').textContent = '执行SQL';
+                        activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">执行SQL</span>' + escapeHtml(sql);
+                    } else if (sql && !activeStreamEl.sqlBlock) {
+                        activeStreamEl.sqlBlock = document.createElement('div');
+                        activeStreamEl.sqlBlock.className = 'sql-block';
+                        activeStreamEl.sqlBlock.innerHTML = '<span class="sql-label">执行SQL</span>' + escapeHtml(sql);
+                        activeStreamEl.wrapper.insertBefore(activeStreamEl.sqlBlock, activeStreamEl.wrapper.querySelector('.time'));
+                    }
                     document.getElementById('sendBtn').disabled = false;
                     isWaiting = false;
                 } else if (summary) {
@@ -565,9 +575,8 @@
                 finishCurrentStream();
             }
             // 无活跃流式消息时的回退处理
-            else if (summary && status === 'COMPLETED') {
-                console.warn('[SSE] ⚠ 回退处理: summary 存在且 COMPLETED, node:', node,
-                    '— 如果 summary 已通过流式展示过，这就是重复输出!');
+            else if (summary && (status === 'COMPLETED' || status === 'FAILED')) {
+                console.warn('[SSE] ⚠ 回退处理: summary 存在, node:', node, 'status:', status);
                 addMessage('agent', summary, sql);
                 document.getElementById('sendBtn').disabled = false;
                 isWaiting = false;
@@ -575,8 +584,16 @@
                 console.log('[SSE] node_output 回退: generate_sql');
                 addMessage('agent', 'SQL 已生成，正在进行安全检查...', sql);
             } else if (node === 'execute_sql') {
-                console.log('[SSE] node_output 回退: execute_sql');
-                addMessage('agent', 'SQL 执行完成，正在生成总结...');
+                console.log('[SSE] node_output 回退: execute_sql, status:', status);
+                if (status === 'FAILED') {
+                    // 不单独展示错误消息 — 交由 summarize 节点统一输出错误详情
+                    updateGraphStatus(node);
+                } else {
+                    addMessage('agent', 'SQL 执行完成，正在生成总结...');
+                }
+            } else if (status === 'FAILED' && state.error_message) {
+                console.log('[SSE] node_output 失败状态, node:', node);
+                addMessage('agent', '执行失败: ' + state.error_message, sql);
             } else {
                 console.log('[SSE] node_output 未匹配任何处理分支, node:', node);
             }
@@ -624,13 +641,23 @@
     }
 
     function toggleModify() {
-        document.getElementById('modifyArea').classList.toggle('visible');
+        const panel = document.getElementById('approvalPanel');
+        if (!panel) return;
+        const area = panel.querySelector('.modify-area');
+        if (!area) return;
+        area.classList.toggle('visible');
+        if (area.classList.contains('visible')) {
+            area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            area.querySelector('textarea').focus();
+        }
     }
 
     function doModify() {
         if (!isWaiting) return;
-        const modifiedSql = document.getElementById('modifiedSql').value.trim();
-        const comment = document.getElementById('modifyComment').value.trim();
+        const panel = document.getElementById('approvalPanel');
+        if (!panel) return;
+        const modifiedSql = panel.querySelector('#modifiedSql')?.value?.trim() || '';
+        const comment = panel.querySelector('#modifyComment')?.value?.trim() || '';
         if (!modifiedSql) { alert('请输入修改后的 SQL'); return; }
         disableButtons();
         resumeWorkflow('MODIFY', modifiedSql, comment);
@@ -649,11 +676,12 @@
             ? { sessionId: currentSessionId, modifiedSql, comment }
             : { sessionId: currentSessionId, comment };
 
-        // 淡化旧的审批面板
+        // 淡化旧的审批面板，清除所有 ID 防止与新面板冲突
         const oldPanel = document.getElementById('approvalPanel');
         if (oldPanel) {
             oldPanel.style.opacity = '0.5';
             oldPanel.removeAttribute('id');
+            oldPanel.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
         }
 
         fetch(url, {
